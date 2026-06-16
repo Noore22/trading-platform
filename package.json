@@ -1,0 +1,15 @@
+{
+  "name": "trading-platform-orchestrator",
+  "version": "1.0.0",
+  "description": "Root manager for starting MT5 Trading Automation Platform services",
+  "main": "index.js",
+  "scripts": {
+    "frontend": "cd frontend && npm run dev",
+    "backend": "cd backend && python main.py",
+    "dev": "concurrently --kill-others \"npm run backend\" \"npm run frontend\" \"node scripts/verify-startup.js\""
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3"
+  }
+}

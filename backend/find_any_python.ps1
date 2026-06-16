@@ -1,0 +1,1 @@
+Get-ChildItem -Path C:\Users\PuthawalaNuareMoazza -Filter python.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName | Out-File -FilePath C:\trading-platform\backend\any_python.txt -Encoding ascii

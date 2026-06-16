@@ -1,0 +1,27 @@
+# Dependency directories
+node_modules/
+**/node_modules/
+
+# Local env files (MUST be ignored to protect credentials)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.staging
+
+# Next.js build output
+.next/
+**/ .next/
+
+# Log files
+*.log
+**/*.log
+*.txt
+**/*.txt
+
+# OS/Editor configs
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db

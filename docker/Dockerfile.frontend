@@ -1,0 +1,33 @@
+# Multi-stage Dockerfile for Next.js Web Dashboard
+
+# Stage 1: Install dependencies
+FROM node:18-alpine AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+COPY frontend/package.json /app/
+RUN npm install
+
+# Stage 2: Build source files
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules /app/node_modules
+COPY frontend /app/
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+RUN npm run build
+
+# Stage 3: Production runner
+FROM node:18-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# Copy output build artifacts
+COPY --from=builder /app/public /app/public
+COPY --from=builder /app/.next /app/.next
+COPY --from=builder /app/node_modules /app/node_modules
+COPY --from=builder /app/package.json /app/package.json
+
+EXPOSE 3000
+CMD ["npm", "start"]
