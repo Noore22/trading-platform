@@ -34,10 +34,28 @@ export default function TradingViewChart({ symbol = 'BINANCE:BTCUSDT', height = 
     try {
       container.innerHTML = '';
       
-      // Map currency pair symbol correctly to Binance
+      // Map symbols correctly depending on market category
       let cleanSymbol = symbol.toUpperCase().trim();
       if (!cleanSymbol.includes(':')) {
-        cleanSymbol = `BINANCE:${cleanSymbol}`;
+        const cryptoSymbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'DOGEUSDT', 'ADAUSDT', 'XRPUSDT'];
+        const forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD'];
+        const metalsSymbols = ['XAUUSD', 'XAGUSD'];
+        const indexSymbols = ['US30', 'NAS100', 'SPX500'];
+
+        if (cryptoSymbols.includes(cleanSymbol)) {
+          cleanSymbol = `BINANCE:${cleanSymbol}`;
+        } else if (forexSymbols.includes(cleanSymbol)) {
+          cleanSymbol = `FX_IDC:${cleanSymbol}`;
+        } else if (metalsSymbols.includes(cleanSymbol)) {
+          cleanSymbol = `OANDA:${cleanSymbol}`;
+        } else if (indexSymbols.includes(cleanSymbol)) {
+          if (cleanSymbol === 'US30') cleanSymbol = `FOREXCOM:DJI`;
+          else if (cleanSymbol === 'NAS100') cleanSymbol = `FOREXCOM:NAS100`;
+          else if (cleanSymbol === 'SPX500') cleanSymbol = `FOREXCOM:SPX500`;
+          else cleanSymbol = `FOREXCOM:${cleanSymbol}`;
+        } else {
+          cleanSymbol = `BINANCE:${cleanSymbol}`;
+        }
       }
 
       const script = document.createElement('script');

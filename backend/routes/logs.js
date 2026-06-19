@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const logs = require('../data/logs');
+const StorageManager = require('../services/StorageManager');
 const authMiddleware = require('../middleware/auth');
 
-router.get('/:accountId', authMiddleware, (req, res) => {
+router.get('/:accountId', authMiddleware, async (req, res) => {
   const accountId = parseInt(req.params.accountId);
   const limit = req.query.limit ? parseInt(req.query.limit) : 50;
 
-  const accountLogs = logs.filter(l => l.account_id === accountId).slice(0, limit);
+  const logs = await StorageManager.read('logs');
+  const accountLogs = Array.isArray(logs) ? logs.filter(l => l.account_id === accountId).slice(0, limit) : [];
   return res.json(accountLogs);
 });
 

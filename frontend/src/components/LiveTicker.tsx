@@ -2,10 +2,110 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../store/useStore';
+import { useTickStore } from '../store/useTickStore';
 import { TrendingUp, Plus, X, ArrowUp, ArrowDown } from 'lucide-react';
 
+const getSpread = (bid: number, ask: number) => {
+  const diff = ask - bid;
+  return diff > 0 ? diff.toFixed(2) : '0.00';
+};
+
+const formatPrice = (price: number, symbol: string) => {
+  const sym = symbol.toUpperCase();
+  if (sym.includes('BTC') || sym.includes('ETH')) {
+    return price.toFixed(2);
+  }
+  if (sym.includes('SOL') || sym.includes('BNB')) {
+    return price.toFixed(3);
+  }
+  return price.toFixed(5);
+};
+
+// Sub-component that subscribes only to its specific tick!
+const TickerBox = ({ symbol, onUnsubscribe }: { symbol: string, onUnsubscribe: (s: string) => void }) => {
+  // Subscribe ONLY to this specific symbol's tick
+  const tick = useTickStore((state) => state.liveTicks[symbol]);
+
+  // Calculate dynamic color transitions based on prev ticks
+  const bidDirection = tick && tick.prevBid !== undefined
+    ? tick.bid > tick.prevBid ? 'up' : tick.bid < tick.prevBid ? 'down' : 'flat'
+    : 'flat';
+    
+  const askDirection = tick && tick.prevAsk !== undefined
+    ? tick.ask > tick.prevAsk ? 'up' : tick.ask < tick.prevAsk ? 'down' : 'flat'
+    : 'flat';
+
+  const bidColorClass = bidDirection === 'up' 
+    ? 'text-success' 
+    : bidDirection === 'down' 
+    ? 'text-danger' 
+    : 'text-white';
+
+  const askColorClass = askDirection === 'up' 
+    ? 'text-success' 
+    : askDirection === 'down' 
+    ? 'text-danger' 
+    : 'text-white';
+
+  return (
+    <div 
+      className="relative bg-background/45 border border-gray-900 hover:border-gray-800/80 rounded-xl p-4 transition group flex flex-col justify-between"
+    >
+      <button
+        onClick={() => onUnsubscribe(symbol)}
+        className="absolute top-2.5 right-2.5 text-gray-650 hover:text-white opacity-0 group-hover:opacity-100 transition"
+        aria-label={`Remove ${symbol}`}
+      >
+        <X size={12} />
+      </button>
+
+      <div className="mb-2">
+        <span className="text-xs font-extrabold text-white tracking-wide font-mono">
+          {symbol}
+        </span>
+        {tick && (
+          <span className="ml-2 text-[9px] font-bold text-gray-500 uppercase tracking-widest">
+            Spread: ${getSpread(tick.bid, tick.ask)}
+          </span>
+        )}
+      </div>
+
+      {tick ? (
+        <div className="grid grid-cols-2 gap-2 mt-1">
+          <div className="flex flex-col">
+            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Bid</span>
+            <div className="flex items-center space-x-1">
+              <span className={`text-sm font-bold font-mono transition-colors duration-250 ${bidColorClass}`}>
+                {formatPrice(tick.bid, symbol)}
+              </span>
+              {bidDirection === 'up' && <ArrowUp size={10} className="text-success shrink-0" />}
+              {bidDirection === 'down' && <ArrowDown size={10} className="text-danger shrink-0" />}
+            </div>
+          </div>
+
+          <div className="flex flex-col">
+            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Ask</span>
+            <div className="flex items-center space-x-1">
+              <span className={`text-sm font-bold font-mono transition-colors duration-250 ${askColorClass}`}>
+                {formatPrice(tick.ask, symbol)}
+              </span>
+              {askDirection === 'up' && <ArrowUp size={10} className="text-success shrink-0" />}
+              {askDirection === 'down' && <ArrowDown size={10} className="text-danger shrink-0" />}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="h-10 flex items-center justify-center">
+          <span className="text-[10px] text-gray-600 font-bold animate-pulse uppercase tracking-wider">
+            Waiting for tick...
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function LiveTicker() {
-  const liveTicks = useStore((state) => state.liveTicks);
   const isMt5Connected = useStore((state) => state.isMt5Connected);
   
   const [trackedSymbols, setTrackedSymbols] = useState<string[]>([
@@ -29,22 +129,6 @@ export default function LiveTicker() {
 
   const handleUnsubscribe = (symbol: string) => {
     setTrackedSymbols(trackedSymbols.filter((s) => s !== symbol));
-  };
-
-  const getSpread = (bid: number, ask: number) => {
-    const diff = ask - bid;
-    return diff > 0 ? diff.toFixed(2) : '0.00';
-  };
-
-  const formatPrice = (price: number, symbol: string) => {
-    const sym = symbol.toUpperCase();
-    if (sym.includes('BTC') || sym.includes('ETH')) {
-      return price.toFixed(2);
-    }
-    if (sym.includes('SOL') || sym.includes('BNB')) {
-      return price.toFixed(3);
-    }
-    return price.toFixed(5);
   };
 
   return (
@@ -91,91 +175,9 @@ export default function LiveTicker() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {trackedSymbols.map((symbol) => {
-            const tick = liveTicks[symbol];
-            
-            // Calculate dynamic color transitions based on prev ticks
-            const bidDirection = tick && tick.prevBid !== undefined
-              ? tick.bid > tick.prevBid ? 'up' : tick.bid < tick.prevBid ? 'down' : 'flat'
-              : 'flat';
-              
-            const askDirection = tick && tick.prevAsk !== undefined
-              ? tick.ask > tick.prevAsk ? 'up' : tick.ask < tick.prevAsk ? 'down' : 'flat'
-              : 'flat';
-
-            const bidColorClass = bidDirection === 'up' 
-              ? 'text-success' 
-              : bidDirection === 'down' 
-              ? 'text-danger' 
-              : 'text-white';
-
-            const askColorClass = askDirection === 'up' 
-              ? 'text-success' 
-              : askDirection === 'down' 
-              ? 'text-danger' 
-              : 'text-white';
-
-            return (
-              <div 
-                key={symbol} 
-                className="relative bg-background/45 border border-gray-900 hover:border-gray-800/80 rounded-xl p-4 transition group flex flex-col justify-between"
-              >
-                {/* Remove button */}
-                <button
-                  onClick={() => handleUnsubscribe(symbol)}
-                  className="absolute top-2.5 right-2.5 text-gray-650 hover:text-white opacity-0 group-hover:opacity-100 transition"
-                  aria-label={`Remove ${symbol}`}
-                >
-                  <X size={12} />
-                </button>
-
-                <div className="mb-2">
-                  <span className="text-xs font-extrabold text-white tracking-wide font-mono">
-                    {symbol}
-                  </span>
-                  {tick && (
-                    <span className="ml-2 text-[9px] font-bold text-gray-500 uppercase tracking-widest">
-                      Spread: ${getSpread(tick.bid, tick.ask)}
-                    </span>
-                  )}
-                </div>
-
-                {tick ? (
-                  <div className="grid grid-cols-2 gap-2 mt-1">
-                    {/* Bid */}
-                    <div className="flex flex-col">
-                      <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Bid</span>
-                      <div className="flex items-center space-x-1">
-                        <span className={`text-sm font-bold font-mono transition-colors duration-250 ${bidColorClass}`}>
-                          {formatPrice(tick.bid, symbol)}
-                        </span>
-                        {bidDirection === 'up' && <ArrowUp size={10} className="text-success shrink-0" />}
-                        {bidDirection === 'down' && <ArrowDown size={10} className="text-danger shrink-0" />}
-                      </div>
-                    </div>
-
-                    {/* Ask */}
-                    <div className="flex flex-col">
-                      <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Ask</span>
-                      <div className="flex items-center space-x-1">
-                        <span className={`text-sm font-bold font-mono transition-colors duration-250 ${askColorClass}`}>
-                          {formatPrice(tick.ask, symbol)}
-                        </span>
-                        {askDirection === 'up' && <ArrowUp size={10} className="text-success shrink-0" />}
-                        {askDirection === 'down' && <ArrowDown size={10} className="text-danger shrink-0" />}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-10 flex items-center justify-center">
-                    <span className="text-[10px] text-gray-600 font-bold animate-pulse uppercase tracking-wider">
-                      Waiting for tick...
-                    </span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {trackedSymbols.map((symbol) => (
+            <TickerBox key={symbol} symbol={symbol} onUnsubscribe={handleUnsubscribe} />
+          ))}
         </div>
       )}
     </div>

@@ -1,98 +1,109 @@
-# MT5 Trading Automation Platform
+# 📈 MT5 Forex Auto Trading Platform
 
-A production-ready algorithmic trading management system connecting MetaTrader 5 terminals to a modern Next.js web dashboard.
+An institutional-grade, fully automated Forex trading platform powered by MetaTrader 5, Python FastAPI, and Next.js. 
+
+This platform replaces legacy polling mechanisms (like Twelve Data) with direct, high-frequency WebSocket streams native to MT5. All trade executions are securely routed through a centralized Risk Manager.
 
 ---
 
-## Repository Directory Structure
+## 🚀 Features
 
-```
+### 🧠 Core Architecture
+- **MetaTrader 5 Direct Bridge**: Natively connects to the physical MT5 Desktop Client via the official `MetaTrader5` Python package.
+- **Python FastAPI Backend**: High-performance asynchronous API and WebSocket server.
+- **Centralized Risk Manager**: An unbreakable gatekeeper that intercepts all manual and algorithmic trade requests to enforce strict risk parameters.
+- **Live WebSocket Feeds**: Pushes tick data, AI signals, and MT5 account equity updates to the React frontend every second.
+
+### 📊 Strategy & AI Engine
+- Supports **EURUSD, GBPUSD, USDJPY, AUDUSD, USDCHF, USDCAD, NZDUSD, XAUUSD, XAGUSD**.
+- Multi-Timeframe Confirmation algorithms.
+- **Autonomous Strategies**:
+  - EMA Trend Strategy (EMA50 vs EMA200)
+  - RSI Scalping Strategy
+  - Volume Breakout Strategy
+- **AI Signal Dashboard**: Displays real-time signal directions and confidence scores.
+
+### 🛡️ Institutional Risk Management
+- **Risk Per Trade**: Automatically calculates precise lot sizes (e.g., 1% risk).
+- **Hard Stops**: Enforces a Max Daily Loss limit (e.g., 3%).
+- **Profit Targets**: Auto-halts trading when the Max Daily Profit (e.g., 5%) is hit.
+- **Trade Constraints**: Limits maximum open trades and max consecutive losses.
+- **Position Manager**: Automatically handles Trailing Stops and Break Even mechanics.
+- **News Filter**: Suspends trading activity around high-impact economic events.
+
+### 🖥️ Professional Trading Terminal (UI)
+- Built with **Next.js, React, TypeScript, and Tailwind CSS**.
+- **Dense Grid Layout**: Edge-to-edge UI optimized for power users, mirroring Binance and TradingView.
+- **Dedicated Workspaces**:
+  - `/terminal`: The execution grid (Market Watch, Live Chart, Order Entry, Open Positions).
+  - `/bots`: Strategy deployment and Risk Manager configuration.
+  - `/portfolio`: Equity curve mapping and asset allocation.
+  - `/scanner`: AI Analyst insights and Top Movers.
+
+---
+
+## 📁 System Blueprint
+
+```text
 trading-platform/
 │
-├── frontend/             # Next.js 15 Web Dashboard Application
-│   ├── src/
-│   │   ├── app/          # Dashboard, Trades, Analytics, Accounts, Settings, Login pages
-│   │   ├── components/   # Sidebar layouts, visual charts, forms
-│   │   ├── hooks/        # Real-time WebSocket hook connection manager
-│   │   ├── services/     # API fetch requests service layer
-│   │   └── store/        # Zustand global client-side state store
-│   └── package.json
+├── backend/                  # Python FastAPI Core
+│   ├── main.py               # FastAPI entry point & MT5 initializer
+│   ├── requirements.txt      
+│   ├── sockets/              
+│   │   └── ws_manager.py     # Live WebSocket Broadcaster
+│   └── services/             
+│       ├── mt5_engine.py     # MT5 connection, ticks, and execution
+│       ├── risk_manager.py   # Position sizing & daily limits gatekeeper
+│       └── strategy_engine.py# AI and algorithmic signal generation
 │
-├── backend/              # FastAPI Python Web Gateway Service
-│   ├── app/
-│   │   ├── api/          # REST route handlers (Auth, Accounts, Trades, Settings, MT5 Gateway)
-│   │   ├── core/         # DB session hooks, Security tokens, config settings
-│   │   ├── models/       # SQLAlchemy database schemas
-│   │   ├── schemas/      # Pydantic request/response model formats
-│   │   └── services/     # Target monitoring, Telegram alert handlers
-│   ├── main.py           # Server entrypoint with DB migrations & seeds
-│   └── requirements.txt
-│
-├── mt5-ea/               # MetaTrader 5 Expert Advisor (MQL5)
-│   ├── EA_Bot.mq5        # Main EA loop (event handler, indicators, polling timer)
-│   ├── TradeManager.mqh  # CTrade wrapper for order executions
-│   ├── RiskManager.mqh   # Local safety checks & allowed hours rules
-│   ├── TelegramManager.mqh # Direct MQL5 to Telegram client requests
-│   ├── ApiClient.mqh     # WebRequest wrapper for syncing with FastAPI
-│   └── Config.mqh        # Input properties & global configurations
-│
-├── database/             # PostgreSQL migrations & datasets
-│   ├── schema.sql        # Database tables schema script
-│   └── seed.sql          # Seed data script for sandbox environments
-│
-├── docs/                 # Platform user & developer documents
-│   ├── API.md            # API routes list & schema formats
-│   ├── INSTALL.md        # Sandbox local deployment guide
-│   ├── DEPLOYMENT.md     # Production deployment instructions
-│   └── USER_GUIDE.md     # Operators manual guide
-│
-├── docker/               # Container configurations
-│   ├── Dockerfile.frontend
-│   └── Dockerfile.backend
-│
-├── docker-compose.yml    # Main Docker compose orchestrator file
-└── README.md             # Project summary README (This file)
+└── frontend/                 # Next.js React UI
+    ├── package.json
+    └── src/
+        ├── app/              # Next.js Pages (Terminal, Bots, Portfolio)
+        ├── components/       # Layouts, Navbar, TradingView Charts
+        ├── hooks/            # useMT5WebSocket.ts
+        └── store/            # Zustand state management
 ```
 
 ---
 
-## Technical Stack Summary
+## 🛠️ Installation & Setup
 
-### Frontend (Next.js Dashboard)
-- **Framework**: Next.js 15 (App Router, React 19)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **State Store**: Zustand
-- **Charting**: Recharts
+### Prerequisites
+1. **Windows OS**: Required for MetaTrader 5.
+2. **MetaTrader 5 Desktop Terminal**: Installed and logged into a Broker Account (Demo or Live). 
+3. **Auto Trading Enabled**: "Allow Auto Trading" must be enabled in your MT5 Terminal options.
+4. **Python 3.10+**: Installed and added to system PATH.
+5. **Node.js**: Installed for the frontend.
 
-### Backend (FastAPI Gateway)
-- **Framework**: FastAPI (Python 3.12)
-- **ORM & DB**: SQLAlchemy, PostgreSQL
-- **Security**: JWT Authentication (python-jose, passlib bcrypt)
-- **Real-Time**: WebSockets
-- **Notifications**: Telegram Bot Integrations, SMTP
+### 1. Start the Backend (FastAPI + MT5)
+
+Open a PowerShell terminal and run:
+
+```bash
+cd backend
+pip install fastapi uvicorn MetaTrader5 pandas
+python main.py
+```
+*Note: Make sure your MT5 application is actively running in the background before starting the Python server.*
+
+### 2. Start the Frontend (Next.js)
+
+Open a new PowerShell terminal and run:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### 3. Access the Platform
+Navigate to **`http://localhost:3000`** in your browser. 
+Log in to view the Dashboard, or head directly to the **`/terminal`** to begin trading.
 
 ---
 
-## Quick Start (Local Run)
+## 🔐 Disclaimer
 
-1. **Launch Database**: Setup PostgreSQL and run `database/schema.sql` and `database/seed.sql`.
-2. **Start Backend**:
-   ```bash
-   cd backend
-   python -m venv venv
-   .\venv\Scripts\activate
-   pip install -r requirements.txt
-   uvicorn backend.main:app --reload --port 8000
-   ```
-3. **Start Frontend**:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-4. **Log In**: Navigate to `http://localhost:3000` and use one of the seeded credentials:
-   - **Admin**: `admin` / `admin123`
-   - **Trader**: `trader` / `admin123`
-   - **Viewer**: `viewer` / `admin123`
-5. **Configure MT5 EA**: Read [docs/INSTALL.md](file:///c:/trading-platform/docs/INSTALL.md) for compiling and installing the Expert Advisor on your MetaTrader 5 terminal.
+This software is for educational and experimental purposes. Algorithmic trading carries significant financial risk. Always test heavily on a MetaTrader 5 **Demo Account** before deploying real capital. The centralized Risk Manager is designed to protect equity, but unexpected market volatility (slippage) can bypass logical constraints.

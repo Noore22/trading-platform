@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const targetsStore = require('../data/targets');
+const StorageManager = require('../services/StorageManager');
 const authMiddleware = require('../middleware/auth');
 const tradeEngine = require('../services/tradeEngine');
 
-router.get('/:accountId', authMiddleware, (req, res) => {
+router.get('/:accountId', authMiddleware, async (req, res) => {
   const accountId = parseInt(req.params.accountId);
+  let targetsStore = await StorageManager.read('targets');
+  if (Array.isArray(targetsStore)) targetsStore = {};
+  
   const targets = targetsStore[accountId] || {
     id: accountId,
     account_id: accountId,
@@ -19,8 +22,11 @@ router.get('/:accountId', authMiddleware, (req, res) => {
   return res.json(targets);
 });
 
-router.put('/:accountId', authMiddleware, (req, res) => {
+router.put('/:accountId', authMiddleware, async (req, res) => {
   const accountId = parseInt(req.params.accountId);
+  let targetsStore = await StorageManager.read('targets');
+  if (Array.isArray(targetsStore)) targetsStore = {};
+
   const current = targetsStore[accountId] || { account_id: accountId };
 
   targetsStore[accountId] = {
@@ -30,6 +36,7 @@ router.put('/:accountId', authMiddleware, (req, res) => {
     account_id: accountId
   };
 
+  await StorageManager.write('targets', targetsStore);
   tradeEngine.addLog(accountId, 'info', 'Updated account profit targets and risk limits.');
   return res.json(targetsStore[accountId]);
 });

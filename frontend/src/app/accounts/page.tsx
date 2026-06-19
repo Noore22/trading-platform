@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Navbar from '../../components/layout/Navbar';
 import { useStore } from '../../store/useStore';
 import api from '../../services/api';
+import { useRouter } from 'next/navigation';
 import { 
   Server, 
   Trash2, 
@@ -25,6 +26,13 @@ export default function AccountsPage() {
   const setSelectedAccount = useStore((state) => state.setSelectedAccount);
   const user = useStore((state) => state.user);
   const isMt5Connected = useStore((state) => state.isMt5Connected);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (user && user.role !== 'admin') {
+        router.push('/unauthorized');
+    }
+  }, [user, router]);
 
   // Form states - seeded by default with user's real MT5 Demo credentials
   const [name, setName] = useState('MOAZZMA NOORE');

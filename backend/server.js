@@ -4,6 +4,11 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 require('dotenv').config();
 
+if (!process.env.JWT_SECRET) {
+    console.error('JWT_SECRET Missing');
+    process.exit(1);
+}
+
 const config = require('./config/binance');
 
 // Import routes
@@ -54,15 +59,25 @@ app.use(`${apiPrefix}/logs`, logsRouter);
 app.use(`${apiPrefix}/analytics`, analyticsRouter);
 app.use(`${apiPrefix}/mt5`, mt5Router);
 
-// Health check
-app.get('/health', (req, res) => {
-  const binanceService = require('./services/binanceService');
+// Health check with system metrics
+const os = require('os');
+app.get(`${apiPrefix}/health`, (req, res) => {
+  const marketDataService = require('./services/marketDataService');
+  const freeMem = os.freemem();
+  const totalMem = os.totalmem();
+  const usedMemPercent = ((totalMem - freeMem) / totalMem) * 100;
+
   res.json({
     backend: "online",
     database: "online",
-    binance: binanceService.isConnected() ? "online" : "offline"
+    binance: marketDataService.isConnected() ? "online" : "offline",
+    cpu_load: os.loadavg()[0],
+    memory_usage_percent: parseFloat(usedMemPercent.toFixed(2)),
+    uptime: process.uptime()
   });
 });
+
+app.get('/health', (req, res) => res.redirect(`${apiPrefix}/health`));
 
 app.get('/', (req, res) => {
   res.json({
@@ -76,7 +91,33 @@ app.get('/', (req, res) => {
 const socketHandler = require('./sockets/socketHandler');
 socketHandler.init(io);
 
-const port = process.env.PORT || 8000;
-server.listen(port, '0.0.0.0', () => {
-  console.log(`NodeJS backend server listening on port ${port}`);
+app.use((err, req, res, next) => {
+    console.error(err);
+    res.status(500).json({
+        success: false,
+        message: err.message
+    });
 });
+
+const port = process.env.PORT || 8000;
+const StorageManager = require('./services/StorageManager');
+
+async function startServer() {
+  console.log('[INFO] Preloading storage cache...');
+  await StorageManager.read('accounts');
+  await StorageManager.read('positions');
+  await StorageManager.read('trades');
+  await StorageManager.read('orders');
+  await StorageManager.read('settings');
+  await StorageManager.read('targets');
+  await StorageManager.read('logs');
+  await StorageManager.read('users');
+  await StorageManager.read('strategies');
+  await StorageManager.read('watchlist');
+
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`NodeJS backend server listening on port ${port}`);
+  });
+}
+
+startServer();

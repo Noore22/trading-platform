@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "username": "admin",
+    "passwordHash": "$2a$10$D1MMcHaE1cuf7Avzj/c95.FoPHvv0OQiqF/.LSElx/wosckNe9waq",
+    "email": "admin@example.com",
+    "role": "admin"
+  },
+  {
+    "id": 2,
+    "username": "trader",
+    "passwordHash": "$2a$10$ZavPdeloORDFaDIXxOvUBuIx46Ddb9Zp7bd/j96OwqMBJvswIYDcW",
+    "email": "trader@tradingplatform.local",
+    "role": "trader"
+  },
+  {
+    "id": 3,
+    "username": "viewer",
+    "passwordHash": "$2a$10$.uwPVvqEVS7J4tYxio1d3.AjkzHlpPAoZ9VhDccthbiAJc9QfpOie",
+    "email": "viewer@tradingplatform.local",
+    "role": "viewer"
+  }
+]

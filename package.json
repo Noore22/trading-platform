@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "frontend": "cd frontend && npm run dev",
-    "backend": "cd backend && python main.py",
+    "backend": "cd backend && npm start",
     "dev": "concurrently --kill-others \"npm run backend\" \"npm run frontend\" \"node scripts/verify-startup.js\""
   },
   "dependencies": {

@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const settingsStore = require('../data/settings');
+const StorageManager = require('../services/StorageManager');
 const authMiddleware = require('../middleware/auth');
 const tradeEngine = require('../services/tradeEngine');
 
-router.get('/:accountId', authMiddleware, (req, res) => {
+router.get('/:accountId', authMiddleware, async (req, res) => {
   const accountId = parseInt(req.params.accountId);
+  let settingsStore = await StorageManager.read('settings');
+  if (Array.isArray(settingsStore)) settingsStore = {};
+
   const settings = settingsStore[accountId] || {
     id: accountId,
     account_id: accountId,
@@ -27,8 +30,11 @@ router.get('/:accountId', authMiddleware, (req, res) => {
   return res.json(settings);
 });
 
-router.put('/:accountId', authMiddleware, (req, res) => {
+router.put('/:accountId', authMiddleware, async (req, res) => {
   const accountId = parseInt(req.params.accountId);
+  let settingsStore = await StorageManager.read('settings');
+  if (Array.isArray(settingsStore)) settingsStore = {};
+
   const current = settingsStore[accountId] || { account_id: accountId };
   
   settingsStore[accountId] = {
@@ -38,14 +44,18 @@ router.put('/:accountId', authMiddleware, (req, res) => {
     account_id: accountId
   };
 
+  await StorageManager.write('settings', settingsStore);
   tradeEngine.addLog(accountId, 'info', 'Updated account trading settings.');
   return res.json(settingsStore[accountId]);
 });
 
-router.post('/:accountId/control', authMiddleware, (req, res) => {
+router.post('/:accountId/control', authMiddleware, async (req, res) => {
   const accountId = parseInt(req.params.accountId);
   const action = req.query.action; // 'start_bot' | 'stop_bot' | 'pause_bot'
   
+  let settingsStore = await StorageManager.read('settings');
+  if (Array.isArray(settingsStore)) settingsStore = {};
+
   if (!settingsStore[accountId]) {
     settingsStore[accountId] = {
       id: accountId,
@@ -67,6 +77,7 @@ router.post('/:accountId/control', authMiddleware, (req, res) => {
     current.auto_trading_enabled = false;
   }
 
+  await StorageManager.write('settings', settingsStore);
   tradeEngine.addLog(accountId, 'info', `Bot control state modified to: ${current.bot_status} (${action})`);
   
   tradeEngine.syncAccount(accountId);

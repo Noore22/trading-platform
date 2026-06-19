@@ -71,6 +71,7 @@ export interface Trade {
   volume: number;
   open_price: number;
   close_price: number;
+  current_price?: number;
   sl: number;
   tp: number;
   profit: number;
@@ -103,15 +104,7 @@ export interface Log {
   created_at: string;
 }
 
-export interface TickData {
-  bid: number;
-  ask: number;
-  last?: number;
-  volume?: number;
-  time: number;
-  prevBid?: number;
-  prevAsk?: number;
-}
+
 
 interface AppState {
   token: string | null;
@@ -125,11 +118,16 @@ interface AppState {
   wsStatus: 'connected' | 'disconnected' | 'connecting';
   isBackendOffline: boolean;
   isMt5Connected: boolean;
-  liveTicks: Record<string, TickData>;
   socket: WebSocket | null;
+  pendingOrders: any[];
+  activeBots: Record<string, string[]>;
+  selectedSymbol: string;
   
   // Actions
   setToken: (token: string | null) => void;
+  setPendingOrders: (orders: any[]) => void;
+  setActiveBots: (activeBots: Record<string, string[]>) => void;
+  setSelectedSymbol: (symbol: string) => void;
   setUser: (user: User | null) => void;
   setAccounts: (accounts: Account[]) => void;
   setSelectedAccount: (account: Account | null) => void;
@@ -140,7 +138,6 @@ interface AppState {
   setWsStatus: (status: 'connected' | 'disconnected' | 'connecting') => void;
   setIsBackendOffline: (offline: boolean) => void;
   setIsMt5Connected: (connected: boolean) => void;
-  setLiveTicks: (ticks: Record<string, TickData>) => void;
   setSocket: (socket: WebSocket | null) => void;
   logout: () => void;
   
@@ -184,8 +181,10 @@ export const useStore = create<AppState>((set) => ({
   wsStatus: 'disconnected',
   isBackendOffline: false,
   isMt5Connected: false,
-  liveTicks: {},
   socket: null,
+  pendingOrders: [],
+  activeBots: {},
+  selectedSymbol: 'BTCUSDT',
  
   setToken: (token) => set(() => {
     if (token) {
@@ -195,6 +194,12 @@ export const useStore = create<AppState>((set) => ({
     }
     return { token };
   }),
+
+  setPendingOrders: (pendingOrders) => set(() => ({ pendingOrders })),
+
+  setActiveBots: (activeBots) => set(() => ({ activeBots })),
+
+  setSelectedSymbol: (selectedSymbol) => set(() => ({ selectedSymbol })),
  
   setUser: (user) => set(() => {
     if (user) {
@@ -239,19 +244,6 @@ export const useStore = create<AppState>((set) => ({
   setIsMt5Connected: (isMt5Connected) => set(() => ({ isMt5Connected })),
 
   setSocket: (socket) => set(() => ({ socket })),
-
-  setLiveTicks: (ticks) => set((state) => {
-    const updated = { ...state.liveTicks };
-    Object.entries(ticks).forEach(([symbol, newTick]) => {
-      const prev = updated[symbol];
-      updated[symbol] = {
-        ...newTick,
-        prevBid: prev ? prev.bid : undefined,
-        prevAsk: prev ? prev.ask : undefined,
-      };
-    });
-    return { liveTicks: updated };
-  }),
  
   logout: () => set(() => {
     localStorage.removeItem('token');
@@ -266,8 +258,10 @@ export const useStore = create<AppState>((set) => ({
       stats: null,
       logs: [],
       isMt5Connected: false,
-      liveTicks: {},
-      socket: null
+      socket: null,
+      pendingOrders: [],
+      activeBots: {},
+      selectedSymbol: 'BTCUSDT'
     };
   }),
 

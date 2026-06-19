@@ -4,10 +4,6 @@ Write-Host "=== MT5 Trading Platform ===" -ForegroundColor Cyan
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Portable Node.js
-$NodePath = "C:\node-v24.16.0-win-x64"
-$env:PATH = "$NodePath;$env:PATH"
-
 # Start Backend
 Write-Host "[INFO] Starting Backend..." -ForegroundColor Green
 
@@ -27,12 +23,10 @@ Start-Sleep -Seconds 5
 Write-Host "[INFO] Starting Frontend..." -ForegroundColor Green
 
 $frontendCommand = @"
-`$env:PATH='$NodePath;' + `$env:PATH
-
 cd '$ProjectRoot\frontend'
 
-npm.cmd install
-npm.cmd run dev
+npm install
+npm run dev
 "@
 
 Start-Process powershell `

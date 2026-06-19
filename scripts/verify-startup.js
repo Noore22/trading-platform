@@ -5,15 +5,13 @@ const http = require('http');
 console.log('⏳ Starting environment verification checks...');
 
 const CONFIG = {
-  dbPort: 5432,
-  dbHost: 'localhost',
   backendUrl: 'http://localhost:8000/',
   frontendUrl: 'http://localhost:3000/',
   timeoutMs: 40000, // 40 seconds timeout
   pollIntervalMs: 1500
 };
 
-// Check if a command is executable (e.g. node, python)
+// Check if a command is executable (e.g. node)
 function checkSystemBinary(command, successRegex) {
   return new Promise((resolve) => {
     exec(command, (error, stdout, stderr) => {
@@ -24,31 +22,6 @@ function checkSystemBinary(command, successRegex) {
         resolve({ passed: true, detail: output });
       }
     });
-  });
-}
-
-// Test TCP port availability
-function checkTcpPort(port, host) {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    socket.setTimeout(2000);
-    
-    socket.on('connect', () => {
-      socket.destroy();
-      resolve(true);
-    });
-    
-    socket.on('timeout', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    
-    socket.on('error', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    
-    socket.connect(port, host);
   });
 }
 
@@ -66,8 +39,6 @@ function checkHttpUrl(url) {
 async function runChecklist() {
   const startTime = Date.now();
   let nodeVerified = false;
-  let pythonVerified = false;
-  let dbConnected = false;
   let backendRunning = false;
   let frontendRunning = false;
   let mt5Connected = false;
@@ -82,36 +53,17 @@ async function runChecklist() {
     process.exit(1);
   }
 
-  // 2. Check Python version
-  let pythonCheck = await checkSystemBinary('python --version');
-  if (!pythonCheck.passed) {
-    // Try python3 as fallback
-    pythonCheck = await checkSystemBinary('python3 --version');
-  }
-  if (pythonCheck.passed) {
-    pythonVerified = true;
-  } else {
-    console.error('\x1b[31m❌ Error: Python is not installed or not in PATH.\x1b[0m');
-    console.error('Please download and install Python 3.12+ before starting.');
-    process.exit(1);
-  }
-
   // Poll for services online status
   while (true) {
     if (Date.now() - startTime > CONFIG.timeoutMs) {
       console.log('\n==================================================');
       console.log('\x1b[31m❌ STARTUP CHECKLIST ENCOUNTERED TIMEOUT ERRORS:\x1b[0m');
-      if (!dbConnected) console.log('- PostgreSQL Database is not running on port 5432.');
-      if (!backendRunning) console.log('- FastAPI Backend failed to start on port 8000.');
+      if (!backendRunning) console.log('- Node.js Backend failed to start on port 8000.');
       if (!frontendRunning) console.log('- Next.js Frontend failed to start on port 3000.');
       console.log('==================================================\n');
       process.exit(1);
     }
 
-    if (!dbConnected) {
-      dbConnected = await checkTcpPort(CONFIG.dbPort, CONFIG.dbHost);
-    }
-    
     if (!backendRunning) {
       backendRunning = await checkHttpUrl(CONFIG.backendUrl);
       if (backendRunning) {
@@ -123,7 +75,7 @@ async function runChecklist() {
       frontendRunning = await checkHttpUrl(CONFIG.frontendUrl);
     }
 
-    if (dbConnected && backendRunning && frontendRunning && mt5Connected) {
+    if (backendRunning && frontendRunning && mt5Connected) {
       // All verified!
       break;
     }
@@ -136,8 +88,6 @@ async function runChecklist() {
   console.log('\x1b[32m🚀 MT5 PLATFORM STARTED SUCCESSFULLY!\x1b[0m');
   console.log('==================================================');
   console.log(`✓ Node.js Version: ${nodeCheck.detail}`);
-  console.log(`✓ Python Version: ${pythonCheck.detail}`);
-  console.log('✓ Database Connected (PostgreSQL: 5432)');
   console.log('✓ Backend Running (http://localhost:8000)');
   console.log('✓ Frontend Running (http://localhost:3000)');
   console.log('✓ MT5 Service Connected');

@@ -1,8 +1,41 @@
-const positions = require('../data/positions');
-const trades = require('../data/trades');
-const accounts = require('../data/accounts');
-const logs = require('../data/logs');
-const settings = require('../data/settings');
+const StorageManager = require('./StorageManager');
+
+const proxyArray = (name) => new Proxy([], {
+    get: (target, prop) => {
+        const cache = StorageManager.getCache(name) || [];
+        const val = cache[prop];
+        if (typeof val === 'function') return val.bind(cache);
+        return val;
+    },
+    set: (target, prop, value) => {
+        const cache = StorageManager.getCache(name);
+        if (cache) {
+            cache[prop] = value;
+            StorageManager.saveBackground(name);
+            return true;
+        }
+        return false;
+    }
+});
+
+const accounts = proxyArray('accounts');
+const positions = proxyArray('positions');
+const trades = proxyArray('trades');
+const orders = proxyArray('orders');
+const logs = proxyArray('logs');
+
+const settings = new Proxy({}, {
+    get: (target, prop) => (StorageManager.getCache('settings') || {})[prop],
+    set: (target, prop, value) => {
+        const cache = StorageManager.getCache('settings');
+        if (cache) {
+            cache[prop] = value;
+            StorageManager.saveBackground('settings');
+            return true;
+        }
+        return false;
+    }
+});
 
 let io = null;
 
@@ -11,17 +44,18 @@ function setSocketIo(socketIoInstance) {
 }
 
 function getNextTicket() {
-  const all = [...positions, ...trades];
+  const all = [...positions, ...trades, ...orders];
   if (all.length === 0) return 100001;
   return Math.max(...all.map(t => t.ticket)) + 1;
 }
 
+// Open active simulated position immediately
 function openPosition(accountId, { symbol, type, volume, sl = 0, tp = 0 }) {
   const account = accounts.find(a => a.id === accountId);
   if (!account) throw new Error('Account not found');
 
-  const binanceService = require('./binanceService');
-  const priceData = binanceService.priceCache[symbol.toUpperCase()];
+  const marketDataService = require('./marketDataService');
+  const priceData = marketDataService.priceCache[symbol.toUpperCase()];
   if (!priceData || !priceData.bid) {
     throw new Error(`No market data available for symbol: ${symbol}`);
   }
@@ -67,6 +101,47 @@ function openPosition(accountId, { symbol, type, volume, sl = 0, tp = 0 }) {
   return pos;
 }
 
+// Place simulated pending Limit or Stop order
+function placeOrder(accountId, { symbol, type, volume, price, sl = 0, tp = 0 }) {
+  const account = accounts.find(a => a.id === accountId);
+  if (!account) throw new Error('Account not found');
+
+  const ticket = getNextTicket();
+  const order = {
+    id: ticket,
+    account_id: accountId,
+    ticket,
+    symbol: symbol.toUpperCase(),
+    type: type.toLowerCase(), // buy_limit, buy_stop, sell_limit, sell_stop
+    volume: parseFloat(volume),
+    price: parseFloat(price),
+    sl: parseFloat(sl || 0),
+    tp: parseFloat(tp || 0),
+    open_time: new Date().toISOString(),
+    status: 'pending'
+  };
+
+  orders.push(order);
+  addLog(accountId, 'info', `Placed simulated pending ${type.toUpperCase()} order on ${symbol} at $${price}`);
+  
+  // Notify client immediately of pending orders list change
+  syncAccount(accountId);
+  return order;
+}
+
+// Cancel simulated pending order
+function cancelOrder(accountId, ticket) {
+  const idx = orders.findIndex(o => o.ticket === ticket && o.account_id === accountId);
+  if (idx === -1) throw new Error('Pending order not found');
+
+  const order = orders[idx];
+  orders.splice(idx, 1);
+  addLog(accountId, 'info', `Cancelled pending ${order.type.toUpperCase()} order (Ticket: ${ticket})`);
+  
+  syncAccount(accountId);
+  return order;
+}
+
 function modifySLTP(accountId, ticket, sl, tp) {
   const pos = positions.find(p => p.ticket === ticket && p.account_id === accountId);
   if (!pos) throw new Error('Position not found');
@@ -84,8 +159,8 @@ function closePosition(accountId, ticket, reason = 'manual close') {
   if (index === -1) throw new Error('Position not found');
 
   const pos = positions[index];
-  const binanceService = require('./binanceService');
-  const priceData = binanceService.priceCache[pos.symbol];
+  const marketDataService = require('./marketDataService');
+  const priceData = marketDataService.priceCache[pos.symbol];
   
   const closePrice = pos.type === 'buy' ? (priceData?.bid || pos.current_price) : (priceData?.ask || pos.current_price);
   pos.current_price = closePrice;
@@ -142,8 +217,8 @@ function partialClose(accountId, ticket, volume) {
   }
 
   // Create closed part
-  const binanceService = require('./binanceService');
-  const priceData = binanceService.priceCache[pos.symbol];
+  const marketDataService = require('./marketDataService');
+  const priceData = marketDataService.priceCache[pos.symbol];
   const closePrice = pos.type === 'buy' ? (priceData?.bid || pos.current_price) : (priceData?.ask || pos.current_price);
   
   let partProfit = 0;
@@ -205,9 +280,9 @@ function closeGroup(accountId, action) {
 }
 
 function onPriceUpdate(symbol, price) {
-  // Update open positions prices and evaluate SL/TP
   let hasChanges = false;
   
+  // 1. Evaluate Trailing Stop and SL/TP for open positions
   for (let i = positions.length - 1; i >= 0; i--) {
     const pos = positions[i];
     if (pos.symbol !== symbol) continue;
@@ -221,9 +296,29 @@ function onPriceUpdate(symbol, price) {
       pos.profit = (pos.open_price - price) * pos.volume;
     }
 
+    // Trailing Stop logic
+    const accountSettings = settings[pos.account_id];
+    if (accountSettings && accountSettings.trailing_stop > 0) {
+      const tsDist = parseFloat(accountSettings.trailing_stop);
+      
+      if (pos.type === 'buy') {
+        const potentialSL = price - tsDist;
+        if (price - pos.open_price > tsDist && potentialSL > pos.sl) {
+          pos.sl = potentialSL;
+          addLog(pos.account_id, 'info', `Trailing Stop: Adjusted SL for Ticket ${pos.ticket} to $${potentialSL.toFixed(4)}`);
+        }
+      } else {
+        const potentialSL = price + tsDist;
+        if (pos.open_price - price > tsDist && (pos.sl === 0 || potentialSL < pos.sl)) {
+          pos.sl = potentialSL;
+          addLog(pos.account_id, 'info', `Trailing Stop: Adjusted SL for Ticket ${pos.ticket} to $${potentialSL.toFixed(4)}`);
+        }
+      }
+    }
+
     hasChanges = true;
 
-    // Check SL/TP
+    // Check SL/TP boundaries
     let hit = false;
     let reason = '';
 
@@ -250,9 +345,72 @@ function onPriceUpdate(symbol, price) {
     }
   }
 
+  // 2. Evaluate simulated pending limit & stop orders
+  for (let i = orders.length - 1; i >= 0; i--) {
+    const order = orders[i];
+    if (order.symbol !== symbol) continue;
+
+    let trigger = false;
+    
+    if (order.type === 'buy_limit') {
+      if (price <= order.price) trigger = true;
+    } else if (order.type === 'buy_stop') {
+      if (price >= order.price) trigger = true;
+    } else if (order.type === 'sell_limit') {
+      if (price >= order.price) trigger = true;
+    } else if (order.type === 'sell_stop') {
+      if (price <= order.price) trigger = true;
+    }
+
+    if (trigger) {
+      // Remove from pending orders list
+      orders.splice(i, 1);
+      addLog(order.account_id, 'info', `Pending Order Triggered: Executed ${order.type.toUpperCase()} for ${order.volume} lot on ${symbol} at $${price}`);
+      
+      try {
+        const typeNormalized = order.type.startsWith('buy') ? 'buy' : 'sell';
+        
+        // Open the active simulated position
+        const ticket = getNextTicket();
+        const pos = {
+          id: ticket,
+          account_id: order.account_id,
+          ticket,
+          symbol: order.symbol,
+          type: typeNormalized,
+          volume: order.volume,
+          open_price: price,
+          current_price: price,
+          sl: order.sl,
+          tp: order.tp,
+          profit: 0.0,
+          open_time: new Date().toISOString(),
+          status: 'open',
+          comment: `Triggered ${order.type.toUpperCase()}`
+        };
+        positions.push(pos);
+
+        // Notify client of order trigger execution
+        if (io) {
+          io.emit('order_trigger', {
+            account_id: order.account_id,
+            ticket: order.ticket,
+            position_ticket: ticket,
+            symbol,
+            type: order.type,
+            price
+          });
+        }
+      } catch (err) {
+        addLog(order.account_id, 'warning', `Failed to open position from triggered order: ${err.message}`);
+      }
+      
+      hasChanges = true;
+    }
+  }
+
   if (hasChanges) {
-    // Sync active accounts
-    const activeAccountIds = [...new Set(positions.map(p => p.account_id))];
+    const activeAccountIds = [...new Set([...positions.map(p => p.account_id), ...orders.map(o => o.account_id)])];
     activeAccountIds.forEach(id => syncAccount(id));
   }
 }
@@ -278,6 +436,7 @@ function syncAccount(accountId) {
   if (!account) return;
 
   const accountPositions = positions.filter(p => p.account_id === accountId);
+  const accountOrders = orders.filter(o => o.account_id === accountId);
   const floatingProfit = accountPositions.reduce((sum, p) => sum + p.profit, 0);
 
   // Compute stats
@@ -309,6 +468,7 @@ function syncAccount(accountId) {
       monthly_profit: account.monthly_profit || 0.0,
       win_rate: account.win_rate || 0.0,
       open_trades: accountPositions,
+      pending_orders: accountOrders,
       timestamp: account.last_sync_at
     });
   }
@@ -317,11 +477,14 @@ function syncAccount(accountId) {
 module.exports = {
   setSocketIo,
   openPosition,
+  placeOrder,
+  cancelOrder,
   modifySLTP,
   closePosition,
   partialClose,
   closeGroup,
   onPriceUpdate,
   addLog,
-  syncAccount
+  syncAccount,
+  io: () => io
 };

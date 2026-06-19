@@ -250,7 +250,31 @@ export const api = {
       body: JSON.stringify(accountId ? { account_id: accountId } : {}),
     });
   },
+  // MT5 Status and Metrics
   getMT5Status: async () => request<any>('/mt5/status'),
+  getHealth: async () => request<any>('/health'),
+  // Pending Limit/Stop Orders
+  getPendingOrders: async () => request<any[]>('/mt5/orders'),
+  placePendingOrder: async (data: { symbol: string; type: string; lot_size: number; price: number; stop_loss?: number; take_profit?: number }) => {
+    return request<any>('/mt5/order', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+  cancelPendingOrder: async (ticket: number) => {
+    return request<any>(`/mt5/order/${ticket}`, {
+      method: 'DELETE'
+    });
+  },
+
+  // Strategy Bots
+  getBotStatus: async () => request<any>('/mt5/bot/status'),
+  toggleBotStrategy: async (data: { symbol: string; strategy: string; active: boolean }) => {
+    return request<any>('/mt5/bot/strategy', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
 };
 
 export default api;

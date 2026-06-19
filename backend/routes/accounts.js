@@ -1,18 +1,23 @@
 const express = require('express');
 const router = express.Router();
-const accounts = require('../data/accounts');
+const StorageManager = require('../services/StorageManager');
 const authMiddleware = require('../middleware/auth');
 
-router.get('/', authMiddleware, (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
+  const accounts = await StorageManager.read('accounts');
   return res.json(accounts);
 });
 
-router.post('/', authMiddleware, (req, res) => {
+router.post('/', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ detail: 'Only admins can register accounts' });
+  }
   const { name, login, broker, server } = req.body;
   if (!login) {
     return res.status(400).json({ detail: 'Account login is required' });
   }
 
+  const accounts = await StorageManager.read('accounts');
   const nextId = accounts.length > 0 ? Math.max(...accounts.map(a => a.id)) + 1 : 1;
   const newAccount = {
     id: nextId,
@@ -36,11 +41,16 @@ router.post('/', authMiddleware, (req, res) => {
   };
 
   accounts.push(newAccount);
+  await StorageManager.write('accounts', accounts);
   return res.json(newAccount);
 });
 
-router.put('/:id', authMiddleware, (req, res) => {
+router.put('/:id', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ detail: 'Only admins can modify accounts' });
+  }
   const id = parseInt(req.params.id);
+  const accounts = await StorageManager.read('accounts');
   const account = accounts.find(a => a.id === id);
   if (!account) {
     return res.status(404).json({ detail: 'Account not found' });
@@ -50,7 +60,6 @@ router.put('/:id', authMiddleware, (req, res) => {
 
   if (is_active !== undefined) {
     if (is_active) {
-      // Set all other accounts to active = false
       accounts.forEach(a => { a.is_active = false; });
     }
     account.is_active = is_active;
@@ -59,17 +68,23 @@ router.put('/:id', authMiddleware, (req, res) => {
   if (broker !== undefined) account.broker = broker;
   if (server !== undefined) account.server = server;
 
+  await StorageManager.write('accounts', accounts);
   return res.json(account);
 });
 
-router.delete('/:id', authMiddleware, (req, res) => {
+router.delete('/:id', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ detail: 'Only admins can delete accounts' });
+  }
   const id = parseInt(req.params.id);
+  const accounts = await StorageManager.read('accounts');
   const index = accounts.findIndex(a => a.id === id);
   if (index === -1) {
     return res.status(404).json({ detail: 'Account not found' });
   }
 
   accounts.splice(index, 1);
+  await StorageManager.write('accounts', accounts);
   return res.status(204).send();
 });
 

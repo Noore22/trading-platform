@@ -1,0 +1,12 @@
+{
+  "1": {
+    "id": 1,
+    "account_id": 1,
+    "daily_profit_target": 200,
+    "monthly_profit_target": 2000,
+    "daily_loss_limit": 100,
+    "weekly_loss_limit": 500,
+    "auto_close_on_target": false,
+    "auto_disable_on_target": false
+  }
+}
