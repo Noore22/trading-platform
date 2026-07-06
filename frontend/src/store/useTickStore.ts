@@ -5,12 +5,20 @@ export interface TickData {
   ask: number;
   last: number;
   volume: number;
-  high: number;
-  low: number;
-  open: number;
   time: number;
   prevBid?: number;
   prevAsk?: number;
+}
+
+export interface CandleData {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  tick_volume: number;
+  spread: number;
+  real_volume: number;
 }
 
 interface TickStore {

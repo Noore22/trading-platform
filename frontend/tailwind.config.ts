@@ -9,18 +9,32 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#090d16", // Premium very dark blue-slate background
-        card: "#111827",       // Slate 900 card background
-        cardLight: "#1f2937",  // Slate 800 hover cards
-        primary: "#3b82f6",    // Blue accent
-        success: "#10b981",    // Emerald green for buy / win
-        danger: "#f43f5e",     // Rose red for sell / loss
-        warning: "#f59e0b",    // Amber for warnings
-        border: "#1f2937",     // Card border color
-        textSecondary: "#9ca3af" // Muted gray text
+        background: "#0B0B0B",
+        card: "#161616",
+        sidebar: "#111111",
+        navbar: "#151515",
+        primary: "#FFD400",
+        "primary-dark": "#CCAA00",
+        secondary: "#FFFFFF",
+        border: "#2B2B2B",
+        success: "#00C853",
+        danger: "#FF1744",
+        warning: "#FF9800",
+        info: "#2196F3",
       },
       fontFamily: {
-        sans: ["Inter", "sans-serif"],
+        sans: ["Inter", "system-ui", "sans-serif"],
+        outfit: ["Outfit", "sans-serif"],
+        mono: ["JetBrains Mono", "Fira Code", "monospace"],
+      },
+      boxShadow: {
+        'glow-yellow': '0 0 30px rgba(255, 212, 0, 0.15)',
+        'glow-green': '0 0 20px rgba(0, 200, 83, 0.15)',
+        'glow-red': '0 0 20px rgba(255, 23, 68, 0.15)',
+        'panel': '0 8px 32px rgba(0, 0, 0, 0.4)',
+      },
+      backdropBlur: {
+        'xs': '2px',
       },
     },
   },

@@ -1,55 +1,122 @@
-import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
-from sqlalchemy.orm import Session
-from fastapi.middleware.cors import CORSMiddleware
-import threading
+import os
 import asyncio
+import logging
+from datetime import datetime
+from contextlib import asynccontextmanager
 
-# Import database
-from database.session import engine, Base, get_db
-from database.models import TradeHistory
+import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 
-# Import our services
-from services.mt5_engine import mt5_engine
-from services.strategy_engine import strategy_engine
-from services.risk_manager import risk_manager
-from sockets.ws_manager import ws_manager
+from config.settings import settings
 
-app = FastAPI(title="MT5 Algo Trading Backend")
+from database.session import engine, Base
 
-# Enable CORS for the Next.js frontend
+from services.mt5_service import mt5_service
+
+from websocket.manager import ws_manager, SYMBOLS
+
+from routers.mt5_router import router as mt5_router
+from routers.auth import router as auth_router
+from routers.ai_router import router as ai_router
+
+logger = logging.getLogger("antigravity")
+
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(settings.LOG_FILE) if settings.LOG_FILE else logging.NullHandler(),
+    ],
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(f"Starting {settings.APP_NAME}")
+
+    os.makedirs("data", exist_ok=True)
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database initialized")
+
+    if settings.ADMIN_USERNAME and settings.ADMIN_PASSWORD:
+        try:
+            from database.session import SessionLocal
+            from database.models import User
+            from routers.auth import get_password_hash
+            db = SessionLocal()
+            admin_user = db.query(User).filter(User.username == settings.ADMIN_USERNAME).first()
+            if not admin_user:
+                admin_user = User(
+                    username=settings.ADMIN_USERNAME,
+                    email=settings.ADMIN_EMAIL or f"{settings.ADMIN_USERNAME}@tradingplatform.local",
+                    hashed_password=get_password_hash(settings.ADMIN_PASSWORD),
+                    role="admin",
+                )
+                db.add(admin_user)
+                db.commit()
+                logger.info(f"Default admin user created ({settings.ADMIN_USERNAME})")
+            db.close()
+        except Exception as e:
+            logger.warning(f"Admin user creation failed: {e}")
+
+    def init_mt5():
+        try:
+            success = mt5_service.initialize()
+            if success:
+                logger.info("MT5 initialized successfully")
+                mt5_service.start_auto_reconnect()
+            else:
+                logger.warning("MT5 initialization failed - check credentials")
+        except Exception as e:
+            logger.warning(f"MT5 initialization error: {e}")
+
+    import threading
+    threading.Thread(target=init_mt5, daemon=True).start()
+
+    loop = asyncio.get_event_loop()
+    await ws_manager.start(loop)
+    logger.info("WebSocket Manager started")
+
+    def init_ai():
+        try:
+            from services.ai.coordinator import ai_coordinator
+            success = ai_coordinator.initialize_all()
+            if success:
+                logger.info("AI Coordinator initialized successfully")
+            else:
+                logger.warning("AI Coordinator initialization incomplete")
+        except Exception as e:
+            logger.warning(f"AI Coordinator initialization error: {e}")
+
+    threading.Thread(target=init_ai, daemon=True).start()
+
+    logger.info(f"{settings.APP_NAME} is fully operational!")
+    yield
+
+    logger.info("Shutting down...")
+    mt5_service.shutdown()
+    await ws_manager.stop()
+    logger.info("Shutdown complete")
+
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    description="IC Markets MetaTrader 5 Trading Platform",
+    version="4.0.0",
+    lifespan=lifespan,
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "*"],
+    allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-async def startup_event():
-    print("Starting up FastAPI Server and connecting to MT5...")
-    
-    # Initialize SQLite Database
-    Base.metadata.create_all(bind=engine)
-    
-    # Initialize MT5
-    def init_mt5_bg():
-        try:
-            success = mt5_engine.initialize()
-            if success:
-                print("MT5 Initialized successfully.")
-            else:
-                print("Failed to initialize MT5. Ensure MT5 Desktop Terminal is running.")
-        except Exception as e:
-            print("MetaTrader5 package may not be installed or supported:", e)
-
-    # Initialize MT5 in a background thread to prevent blocking the event loop on IPC timeout
-    threading.Thread(target=init_mt5_bg, daemon=True).start()
-    
-    # ALWAYS start background loops so auto-reconnect can function!
-    threading.Thread(target=strategy_engine.run, daemon=True).start()
-    asyncio.create_task(ws_manager.run_broadcast_loop())
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -57,133 +124,138 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            # Handle incoming commands from UI (e.g., execute manual trade)
-            pass
+            await ws_manager.handle_message(websocket, data)
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
 
-@app.get("/")
-def read_root():
-    return {"status": "ok", "message": "MT5 FastAPI Backend is running"}
 
-@app.get("/health")
-@app.get("/api/v1/health")
-def get_health():
+app.include_router(mt5_router)
+app.include_router(auth_router)
+app.include_router(ai_router)
+
+
+@app.get("/")
+async def root():
+    return {
+        "name": settings.APP_NAME,
+        "version": "4.0.0",
+        "status": "operational",
+        "environment": settings.ENVIRONMENT,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/api/health")
+async def health():
+    mt5_connected = mt5_service.connected
+    summary = mt5_service.get_account_summary()
     return {
         "status": "online",
-        "mt5_connected": getattr(mt5_engine, "connected", False),
-        "active_bots": 1 if getattr(strategy_engine, "is_running", False) else 0
+        "app": settings.APP_NAME,
+        "version": "4.0.0",
+        "mt5_connected": mt5_connected,
+        "mt5": {
+            "connected": mt5_connected,
+            "balance": summary.get("balance", 0),
+            "equity": summary.get("equity", 0),
+            "server": summary.get("server", ""),
+            "account_number": summary.get("account_number", 0),
+        } if mt5_connected else {"connected": False},
+        "websocket_connections": len(ws_manager._connections) if hasattr(ws_manager, '_connections') else 0,
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
-@app.get("/api/trades/history")
-def get_trade_history(db: Session = Depends(get_db)):
-    trades = db.query(TradeHistory).order_by(TradeHistory.timestamp.desc()).all()
-    
-    winning_trades = len([t for t in trades if (t.profit or 0) > 0])
-    losing_trades = len([t for t in trades if (t.profit or 0) < 0])
-    total_trades = len(trades)
-    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-    
-    net_profit = sum((t.profit or 0) for t in trades)
-    gross_profit = sum((t.profit or 0) for t in trades if (t.profit or 0) > 0)
-    gross_loss = sum((t.profit or 0) for t in trades if (t.profit or 0) < 0)
-    
+
+@app.get("/api/v1/health")
+async def health_v1():
+    mt5_connected = mt5_service.connected
+    summary = mt5_service.get_account_summary()
     return {
-        "summary": {
-            "total_trades": total_trades,
-            "winning_trades": winning_trades,
-            "losing_trades": losing_trades,
-            "win_rate": round(win_rate, 2),
-            "net_profit": round(net_profit, 2),
-            "gross_profit": round(gross_profit, 2),
-            "gross_loss": round(gross_loss, 2)
+        "status": "online",
+        "mt5_connected": mt5_connected,
+        "mt5": {
+            "connected": mt5_connected,
+            "balance": summary.get("balance", 0),
+            "equity": summary.get("equity", 0),
+            "profit": summary.get("profit", 0),
+            "margin": summary.get("margin", 0),
+            "free_margin": summary.get("free_margin", 0),
+            "margin_level": summary.get("margin_level", 0),
+            "leverage": summary.get("leverage", 0),
+            "currency": summary.get("currency", "USD"),
+            "server": summary.get("server", ""),
+            "account_number": summary.get("account_number", 0),
+            "broker": summary.get("broker", ""),
+            "trade_allowed": summary.get("trade_allowed", False),
+            "open_positions": summary.get("open_positions", 0),
+            "floating_profit": summary.get("floating_profit", 0),
+            "daily_profit": summary.get("daily_profit", 0),
+            "weekly_profit": summary.get("weekly_profit", 0),
+            "monthly_profit": summary.get("monthly_profit", 0),
+            "drawdown": summary.get("drawdown", 0),
+        } if mt5_connected else {"connected": False},
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/api/v1/status")
+async def api_status():
+    summary = mt5_service.get_account_summary()
+    mt5_connected = summary.get("connected", False)
+    ws_connected = len(ws_manager._connections) > 0 if hasattr(ws_manager, '_connections') else False
+    return {
+        "status": "online",
+        "app": settings.APP_NAME,
+        "version": "4.0.0",
+        "mt5": {
+            "connected": mt5_connected,
+            "balance": summary.get("balance", 0),
+            "equity": summary.get("equity", 0),
+            "profit": summary.get("profit", 0),
+            "margin": summary.get("margin", 0),
+            "free_margin": summary.get("free_margin", 0),
+            "leverage": summary.get("leverage", 100),
+            "currency": summary.get("currency", "USD"),
+            "open_positions": summary.get("open_positions", 0),
         },
-        "trades": trades
+        "websocket": {
+            "connected": ws_connected,
+            "connections": len(ws_manager._connections) if hasattr(ws_manager, '_connections') else 0,
+        },
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
-# --- Legacy Node.js API Compatibility Endpoints ---
 
-@app.get("/api/v1/auth/me")
-def get_me():
+@app.get("/api/v1/dashboard")
+async def dashboard():
+    summary = mt5_service.get_account_summary_for_dashboard()
+    positions = mt5_service.get_open_positions()
+    orders = mt5_service.get_pending_orders()
+    ticks = {}
+    for sym in SYMBOLS:
+        tick = mt5_service.get_tick(sym)
+        if tick:
+            ticks[sym] = tick
     return {
-        "id": 1,
-        "username": "admin",
-        "role": "admin",
-        "email": "admin@tradingplatform.local"
+        "mt5": summary,
+        "positions": positions,
+        "orders": orders,
+        "market_ticks": ticks,
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
-@app.get("/api/v1/accounts/")
-def get_accounts():
-    summary = mt5_engine.get_account_summary() or {}
-    return [
-        {
-            "id": 1,
-            "name": "Primary MT5 Account",
-            "login": "12345678",
-            "broker": "MetaQuotes",
-            "server": "MetaQuotes-Demo",
-            "balance": summary.get("balance", 0.0),
-            "equity": summary.get("equity", 0.0)
-        }
-    ]
 
-@app.get("/api/v1/mt5/status")
-def get_mt5_status():
-    return {
-        "connected": mt5_engine.connected,
-        "bot_running": getattr(strategy_engine, "is_running", False)
-    }
+@app.get("/api/v1/scanner")
+async def get_scanner():
+    from websocket.manager import compute_scanner_data
+    return compute_scanner_data()
 
-@app.get("/api/v1/mt5/positions")
-def get_mt5_positions():
-    return mt5_engine.get_open_positions() if mt5_engine.connected else []
-
-@app.get("/api/v1/mt5/orders")
-def get_pending_orders():
-    return [] # Implement if needed
-
-@app.get("/api/v1/mt5/history")
-def get_mt5_history(days_back: int = 7):
-    return [] # We use /api/trades/history for this now
-
-@app.get("/api/v1/mt5/bot/status")
-def get_bot_status():
-    return {}
-
-@app.post("/api/v1/mt5/connect")
-def connect_mt5():
-    return {"status": "ok", "message": "MT5 connection handled by background worker."}
-
-@app.get("/api/v1/settings/{account_id}")
-def get_settings(account_id: int):
-    return {
-        "max_drawdown_limit": 10.0,
-        "daily_profit_target": 100.0,
-        "max_open_trades": 5,
-        "risk_per_trade": 1.0,
-        "trailing_stop": True,
-        "bot_status": "stopped"
-    }
-
-@app.get("/api/v1/targets/{account_id}")
-def get_targets(account_id: int):
-    return {
-        "daily_target": 100.0,
-        "weekly_target": 500.0,
-        "monthly_target": 2000.0
-    }
-
-@app.get("/api/v1/logs/{account_id}")
-def get_logs(account_id: int, limit: int = 50):
-    return [
-        {
-            "id": 1,
-            "account_id": account_id,
-            "level": "info",
-            "message": "MT5 Auto Trading engine active and polling for updates.",
-            "created_at": "2026-06-19T00:00:00Z"
-        }
-    ]
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.DEBUG,
+        log_level=settings.LOG_LEVEL.lower(),
+    )

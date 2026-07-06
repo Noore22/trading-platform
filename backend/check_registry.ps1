@@ -1,1 +1,0 @@
-Get-ItemProperty -Path 'HKLM:\SOFTWARE\Python\PythonCore\*', 'HKCU:\SOFTWARE\Python\PythonCore\*' -ErrorAction SilentlyContinue | Select-Object InstallPath | Out-File -FilePath C:\trading-platform\backend\registry_output.txt

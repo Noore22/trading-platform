@@ -1,280 +1,111 @@
-import { useStore } from '../store/useStore';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8007";
 const API_BASE_URL = `${API_URL}/api/v1`;
 
-// API diagnostics logging
-console.log("API URL:", API_BASE_URL);
-
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const isGetAccountsOrMe = (endpoint.startsWith('/accounts') || endpoint.startsWith('/auth/me')) && 
-                             (!options.method || options.method.toUpperCase() === 'GET');
-  const maxAttempts = isGetAccountsOrMe ? 4 : 1; // 1 initial + 3 retries = 4 attempts
-
+  const maxAttempts = endpoint.startsWith('/') ? 2 : 1;
   let lastError: any = null;
-
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     const headers = new Headers(options.headers || {});
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
+    if (token) headers.set('Authorization', `Bearer ${token}`);
     if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
-
     const timeoutMs = 10000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    const requestUrl = `${API_BASE_URL}${endpoint}`;
-
+    const requestUrl = endpoint.startsWith('/api/') ? `${API_URL}${endpoint}` : `${API_BASE_URL}${endpoint}`;
     try {
-      if (attempt > 1) {
-        console.warn(`[API Retry] Attempt ${attempt - 1} of 3 for: ${endpoint}`);
-      } else {
-        console.log(`[API Request] ${options.method || 'GET'} ${requestUrl}`);
-      }
-
-      const response = await fetch(requestUrl, {
-        ...options,
-        headers,
-        signal: controller.signal
-      });
-
+      const response = await fetch(requestUrl, { ...options, headers, signal: controller.signal });
       clearTimeout(timeoutId);
-      console.log(`[API Response] ${response.status} from ${endpoint}`);
-
-      // Backend succeeded - set isBackendOffline to false
-      if (typeof window !== 'undefined') {
-        useStore.getState().setIsBackendOffline(false);
-      }
-
       if (!response.ok) {
-        if (response.status === 401) {
-          if (typeof window !== 'undefined') {
-            useStore.getState().logout();
-            window.location.href = '/login';
-          }
+        if (response.status === 401 && typeof window !== 'undefined') {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
         }
         const errText = await response.text();
-        let errJson;
-        try {
-          errJson = JSON.parse(errText);
-        } catch {
-          // Not JSON
-        }
-        const errorMessage = errJson?.detail || errText || `HTTP error! Status: ${response.status}`;
-        console.error(`[API Error Response] ${response.status}: ${errorMessage}`);
-        throw new Error(errorMessage);
+        throw new Error(errText || `HTTP error! Status: ${response.status}`);
       }
-
-      if (response.status === 204) {
-        return null as T;
-      }
-
-      const data = await response.json();
-      return data as T;
+      if (response.status === 204) return null as T;
+      return await response.json() as T;
     } catch (error: any) {
       clearTimeout(timeoutId);
-      
-      // Check if it is a connection/network/timeout issue
-      const isConnectionIssue = error.name === 'AbortError' || 
-                                 error.message?.includes('Failed to fetch') || 
-                                 error.message?.includes('NetworkError') ||
-                                 error.message?.includes('Failed to connect') ||
-                                 error.message?.includes('Could not connect');
-
-      if (isConnectionIssue) {
-        if (typeof window !== 'undefined') {
-          useStore.getState().setIsBackendOffline(true);
-        }
-      }
-
-      if (error.name === 'AbortError') {
-        console.warn(`[API Timeout] ${options.method || 'GET'} ${requestUrl} timed out after ${timeoutMs}ms`);
-        lastError = new Error(`Request timed out after ${timeoutMs}ms. (Attempt ${attempt}/${maxAttempts})`);
-      } else {
-        console.warn(`[API Connection Failure] ${options.method || 'GET'} ${requestUrl}: ${error.message || error}`);
-        lastError = error;
-      }
-
+      lastError = error;
       if (attempt < maxAttempts) {
-        // Wait 1 second before retrying
         await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
       }
     }
   }
-
   throw lastError;
 }
 
 export const api = {
-  // Auth
   login: async (username: string, password: string) => {
     const formData = new URLSearchParams();
     formData.append('username', username);
     formData.append('password', password);
-    
-    return request<{ access_token: string; token_type: string }>('/auth/login', {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
     });
+    if (!response.ok) throw new Error('Login failed');
+    return response.json();
   },
-  
   getMe: async () => request<any>('/auth/me'),
-  
-  // Accounts
-  getAccounts: async () => request<any[]>('/accounts/'),
-  createAccount: async (data: any) => request<any>('/accounts/', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }),
-  updateAccount: async (id: number, data: any) => request<any>(`/accounts/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  }),
-  deleteAccount: async (id: number) => request<void>(`/accounts/${id}`, {
-    method: 'DELETE',
-  }),
 
-  // Trades
-  getTrades: async (params?: { account_id?: number; status?: string; symbol?: string }) => {
-    const query = new URLSearchParams();
-    if (params?.account_id) query.append('account_id', String(params.account_id));
-    if (params?.status) query.append('status', params.status);
-    if (params?.symbol) query.append('symbol', params.symbol);
-    return request<any[]>(`/trades/?${query.toString()}`);
-  },
-  
-  dispatchManualTrade: async (accountId: number, data: { symbol: string; type: string; volume: number; sl?: number; tp?: number }) => {
-    return request<any>(`/trades/manual-trade?account_id=${accountId}`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
+  getHealth: async () => request<any>('/api/health'),
+  getStatus: async () => request<any>('/api/v1/status'),
+  getDashboard: async () => request<any>('/api/v1/dashboard'),
 
-  modifySLTP: async (accountId: number, data: { ticket: number; sl: number; tp: number }) => {
-    return request<any>(`/trades/modify-sl-tp?account_id=${accountId}`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  partialClose: async (accountId: number, data: { ticket: number; volume: number }) => {
-    return request<any>(`/trades/partial-close?account_id=${accountId}`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  closeGroup: async (accountId: number, action: 'close_all' | 'close_buys' | 'close_sells') => {
-    return request<any>(`/trades/close-group?account_id=${accountId}&action=${action}`, {
-      method: 'POST',
-    });
-  },
-
-  // Targets
-  getTargets: async (accountId: number) => request<any>(`/targets/${accountId}`),
-  updateTargets: async (accountId: number, data: any) => request<any>(`/targets/${accountId}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  }),
-
-  // Settings
-  getSettings: async (accountId: number) => request<any>(`/settings/${accountId}`),
-  updateSettings: async (accountId: number, data: any) => request<any>(`/settings/${accountId}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  }),
-  controlBotState: async (accountId: number, action: string) => {
-    return request<any>(`/settings/${accountId}/control?action=${action}`, {
-      method: 'POST',
-    });
-  },
-
-  // Logs
-  getLogs: async (accountId: number, limit: number = 50) => {
-    return request<any[]>(`/logs/${accountId}?limit=${limit}`);
-  },
-
-  // Analytics
-  getStats: async (accountId: number) => request<any>(`/analytics/${accountId}/stats`),
-  getCharts: async (accountId: number) => request<any>(`/analytics/${accountId}/charts`),
-
-  // MT5 Direct Integration
   getMT5Account: async () => request<any>('/mt5/account'),
   getMT5Positions: async () => request<any[]>('/mt5/positions'),
-  getMT5History: async (daysBack: number = 30) => request<any[]>(`/mt5/history?days_back=${daysBack}`),
-  placeMT5Buy: async (data: { symbol: string; lot_size: number; stop_loss?: number; take_profit?: number }) => {
-    return request<any>('/mt5/buy', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-  placeMT5Sell: async (data: { symbol: string; lot_size: number; stop_loss?: number; take_profit?: number }) => {
-    return request<any>('/mt5/sell', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-  closeMT5Position: async (ticket: number) => {
-    return request<any>('/mt5/close', {
-      method: 'POST',
-      body: JSON.stringify({ ticket }),
-    });
-  },
-  closeAllMT5Positions: async () => {
-    return request<any>('/mt5/close-all', {
-      method: 'POST',
-    });
-  },
-  modifyMT5SLTP: async (data: { ticket: number; sl: number; tp: number }) => {
-    return request<any>('/mt5/modify-sl-tp', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-  partialCloseMT5Position: async (data: { ticket: number; volume: number }) => {
-    return request<any>('/mt5/partial-close', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-  connectMT5: async (accountId?: number) => {
-    return request<any>('/mt5/connect', {
-      method: 'POST',
-      body: JSON.stringify(accountId ? { account_id: accountId } : {}),
-    });
-  },
-  // MT5 Status and Metrics
+  getMT5Orders: async () => request<any[]>('/mt5/orders'),
+  getMT5History: async (daysBack: number = 7) => request<any[]>(`/mt5/history?days_back=${daysBack}`),
   getMT5Status: async () => request<any>('/mt5/status'),
-  getHealth: async () => request<any>('/health'),
-  // Pending Limit/Stop Orders
-  getPendingOrders: async () => request<any[]>('/mt5/orders'),
-  placePendingOrder: async (data: { symbol: string; type: string; lot_size: number; price: number; stop_loss?: number; take_profit?: number }) => {
-    return request<any>('/mt5/order', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-  cancelPendingOrder: async (ticket: number) => {
-    return request<any>(`/mt5/order/${ticket}`, {
-      method: 'DELETE'
-    });
-  },
+  getMT5Symbols: async () => request<any[]>('/mt5/symbols'),
+  getMT5Tick: async (symbol: string = 'EURUSD') => request<any>(`/mt5/tick?symbol=${symbol}`),
+  getMT5Candles: async (symbol: string = 'EURUSD', timeframe: string = 'M1', count: number = 100) =>
+    request<any[]>(`/mt5/candles?symbol=${symbol}&timeframe=${timeframe}&count=${count}`),
 
-  // Strategy Bots
-  getBotStatus: async () => request<any>('/mt5/bot/status'),
-  toggleBotStrategy: async (data: { symbol: string; strategy: string; active: boolean }) => {
-    return request<any>('/mt5/bot/strategy', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  }
+  placeBuy: async (data: { symbol: string; volume: number; sl?: number; tp?: number }) =>
+    request<any>('/mt5/buy', { method: 'POST', body: JSON.stringify(data) }),
+  placeSell: async (data: { symbol: string; volume: number; sl?: number; tp?: number }) =>
+    request<any>('/mt5/sell', { method: 'POST', body: JSON.stringify(data) }),
+  closePosition: async (ticket: number) =>
+    request<any>('/mt5/close', { method: 'POST', body: JSON.stringify({ ticket }) }),
+  closeAllPositions: async () => request<any>('/mt5/close-all', { method: 'POST' }),
+  modifyPosition: async (data: { ticket: number; sl?: number; tp?: number }) =>
+    request<any>('/mt5/modify', { method: 'POST', body: JSON.stringify(data) }),
+  partialClose: async (data: { ticket: number; volume: number }) =>
+    request<any>('/mt5/partial-close', { method: 'POST', body: JSON.stringify(data) }),
+
+  placePendingOrder: async (data: { symbol: string; type: string; volume: number; price: number; sl?: number; tp?: number }) =>
+    request<any>('/mt5/order', { method: 'POST', body: JSON.stringify(data) }),
+  cancelOrder: async (ticket: number) =>
+    request<any>(`/mt5/order/${ticket}`, { method: 'DELETE' }),
+  modifyOrder: async (ticket: number, data: { price: number; sl?: number; tp?: number }) =>
+    request<any>(`/mt5/order/${ticket}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  connectMT5: async () => request<any>('/mt5/connect', { method: 'POST' }),
+
+  getScanner: async () => request<any[]>('/api/v1/scanner'),
+
+  aiAnalyze: async (symbol: string) => request<any>(`/ai/analyze/${symbol}`, { method: 'POST' }),
+  aiSignal: async (symbol: string) => request<any>(`/ai/signal/${symbol}`),
+  aiSignals: async () => request<any>('/ai/signals'),
+  aiTechnical: async (symbol: string) => request<any>(`/ai/technical/${symbol}`, { method: 'POST' }),
+  aiNews: async (symbol: string) => request<any>(`/ai/news/${symbol}`, { method: 'POST' }),
+  aiSentiment: async (symbol: string) => request<any>(`/ai/sentiment/${symbol}`, { method: 'POST' }),
+  aiRisk: async (symbol: string) => request<any>(`/ai/risk/${symbol}`, { method: 'POST' }),
+  aiPortfolio: async () => request<any>('/ai/portfolio', { method: 'POST' }),
+  aiHistory: async (symbol?: string) => request<any>(`/ai/history${symbol ? `?symbol=${symbol}` : ''}`),
+  aiAgents: async () => request<any>('/ai/agents'),
+  aiInitialize: async () => request<any>('/ai/initialize', { method: 'POST' }),
+  aiExecute: async (symbol: string, autoConfirm: boolean = false) =>
+    request<any>(`/ai/execute/${symbol}${autoConfirm ? '?auto_confirm=true' : ''}`, { method: 'POST' }),
+  aiExecutions: async (symbol?: string) => request<any>(`/ai/executions${symbol ? `?symbol=${symbol}` : ''}`),
 };
 
 export default api;
