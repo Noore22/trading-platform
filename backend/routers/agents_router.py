@@ -62,21 +62,27 @@ async def initialize_agents():
     return {"status": "initialized", "timestamp": datetime.utcnow().isoformat()}
 
 # --- TradingAgents (Deep Analysis) Endpoints ---
-from services.tradingagents_service import tradingagents_service
 
 @router.post("/deep-analyze/{symbol}")
 async def start_deep_analyze(symbol: str):
     symbol = symbol.upper()
+    try:
+        from services.tradingagents_service import tradingagents_service
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"TradingAgents service unavailable: {e}")
     if tradingagents_service.is_running(symbol):
         raise HTTPException(status_code=409, detail=f"Deep analysis already running for {symbol}")
         
-    # Start in background via asyncio
     asyncio.create_task(tradingagents_service.analyze_symbol_async(symbol))
     return {"status": "started", "symbol": symbol, "message": "Deep analysis started in background."}
 
 @router.get("/deep-result/{symbol}")
 async def get_deep_result(symbol: str):
     symbol = symbol.upper()
+    try:
+        from services.tradingagents_service import tradingagents_service
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"TradingAgents service unavailable: {e}")
     if tradingagents_service.is_running(symbol):
         return {"status": "running", "symbol": symbol, "message": "Analysis in progress..."}
         

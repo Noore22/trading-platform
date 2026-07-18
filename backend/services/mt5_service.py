@@ -3,12 +3,29 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 import threading
+import concurrent.futures
 import logging
 from typing import Optional, Dict, List, Any
 
 from config.settings import settings
 
 logger = logging.getLogger("MT5Service")
+
+
+def mt5_call_with_timeout(func, *args, timeout=5.0, **kwargs):
+    """Call an MT5 function with timeout to prevent hanging."""
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(func, *args, **kwargs)
+        return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        logger.error(f"MT5 call {func.__name__} timed out after {timeout}s")
+        return None
+    except Exception as e:
+        logger.error(f"MT5 call {func.__name__} error: {e}")
+        return None
+    finally:
+        executor.shutdown(wait=False)
 
 
 class MT5Service:
@@ -20,6 +37,8 @@ class MT5Service:
         self._reconnect_thread: Optional[threading.Thread] = None
         self._running = False
         self._last_heartbeat: Optional[float] = None
+        self.last_error: str = ""
+        self.last_error_time: Optional[float] = None
 
     def initialize(self) -> bool:
         with self._lock:
@@ -27,37 +46,60 @@ class MT5Service:
                 return True
             try:
                 if settings.MT5_PATH:
-                    initialized = mt5.initialize(path=settings.MT5_PATH)
+                    initialized = mt5_call_with_timeout(
+                        lambda: mt5.initialize(path=settings.MT5_PATH, timeout=10000),
+                        timeout=10.0,
+                    )
                 else:
-                    initialized = mt5.initialize()
+                    initialized = mt5_call_with_timeout(
+                        lambda: mt5.initialize(timeout=10000),
+                        timeout=10.0,
+                    )
 
                 if not initialized:
-                    logger.error(f"MT5 initialize failed: {mt5.last_error()}")
+                    err = mt5.last_error()
+                    self.last_error = f"MT5 initialize failed: {err}" if err else "MT5 initialize failed (timeout or no response)"
+                    self.last_error_time = time.time()
+                    logger.error(self.last_error)
                     self.connected = False
                     return False
 
                 if settings.MT5_LOGIN and settings.MT5_PASSWORD:
-                    login_result = mt5.login(
-                        login=settings.MT5_LOGIN,
-                        password=settings.MT5_PASSWORD,
-                        server=settings.MT5_SERVER,
+                    login_result = mt5_call_with_timeout(
+                        lambda: mt5.login(
+                            login=settings.MT5_LOGIN,
+                            password=settings.MT5_PASSWORD,
+                            server=settings.MT5_SERVER,
+                        ),
+                        timeout=10.0,
                     )
                     if not login_result:
-                        logger.error(f"MT5 login failed: {mt5.last_error()}")
-                        mt5.shutdown()
+                        err = mt5.last_error()
+                        self.last_error = f"MT5 login failed: {err}" if err else "MT5 login failed (invalid credentials or server)"
+                        self.last_error_time = time.time()
+                        logger.error(self.last_error)
+                        mt5_call_with_timeout(mt5.shutdown, timeout=3.0)
                         self.connected = False
                         return False
 
-                self.account_info = mt5.account_info()
-                self.terminal_info = mt5.terminal_info()
-                self.connected = True
+                self.account_info = mt5_call_with_timeout(mt5.account_info, timeout=5.0)
+                self.terminal_info = mt5_call_with_timeout(mt5.terminal_info, timeout=5.0)
+                self.connected = self.account_info is not None
                 self._last_heartbeat = time.time()
-                logger.info(
-                    f"MT5 Connected: {self.account_info.login} @ {self.account_info.server}"
-                )
-                return True
+                if self.connected and self.account_info:
+                    self.last_error = ""
+                    logger.info(
+                        f"MT5 Connected: {self.account_info.login} @ {self.account_info.server}"
+                    )
+                else:
+                    self.last_error = "MT5 initialize succeeded but no account info returned"
+                    self.last_error_time = time.time()
+                    logger.warning(self.last_error)
+                return self.connected
             except Exception as e:
-                logger.error(f"MT5 initialization error: {e}")
+                self.last_error = f"MT5 initialization error: {e}"
+                self.last_error_time = time.time()
+                logger.error(self.last_error)
                 self.connected = False
                 return False
 
@@ -65,7 +107,7 @@ class MT5Service:
         if not self.connected:
             return False
         try:
-            info = mt5.terminal_info()
+            info = mt5_call_with_timeout(mt5.terminal_info, timeout=5.0)
             if info is None:
                 self.connected = False
                 return False
@@ -91,7 +133,7 @@ class MT5Service:
             time.sleep(5)
             if not self.check_connection():
                 logger.warning("MT5 disconnected, attempting reconnect...")
-                mt5.shutdown()
+                mt5_call_with_timeout(mt5.shutdown, timeout=3.0)
                 time.sleep(2)
                 self.initialize()
 
@@ -99,7 +141,7 @@ class MT5Service:
         self._running = False
         self.connected = False
         try:
-            mt5.shutdown()
+            mt5_call_with_timeout(mt5.shutdown, timeout=3.0)
         except Exception:
             pass
 

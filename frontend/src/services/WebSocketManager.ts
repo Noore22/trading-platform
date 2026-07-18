@@ -120,6 +120,9 @@ class WebSocketManager {
     if (data.mt5) {
       const mt5 = data.mt5;
       useStore.getState().setIsMt5Connected(!!mt5.connected);
+      if (mt5.error) {
+        useStore.getState().setMt5Error(mt5.error);
+      }
       if (mt5.balance !== undefined) {
         useStore.getState().setMt5Data({
           balance: mt5.balance,

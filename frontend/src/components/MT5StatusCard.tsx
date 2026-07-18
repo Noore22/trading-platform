@@ -6,26 +6,22 @@ import { api } from '../services/api';
 import { useToast } from './ui/Toast';
 
 export default function MT5StatusCard({ currentAccount }: { currentAccount: any }) {
-  const [status, setStatus] = useState({ connected: false, trade_allowed: false });
+  const [status, setStatus] = useState({ connected: false, trade_allowed: false, error: '' });
   const toast = useToast();
 
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await api.getMT5Status();
-        if (res.ok) {
-          const data = await res.json();
-          setStatus(data);
-          
-          if (!data.connected) {
-            toast.error("MT5 is disconnected! Retrying...");
-          }
+        const data = await api.getMT5Status();
+        setStatus(data);
+        if (!data.connected && data.error) {
+          toast.error(`MT5: ${data.error}`);
         }
       } catch (err) {
-        setStatus({ connected: false, trade_allowed: false });
+        setStatus({ connected: false, trade_allowed: false, error: 'Cannot reach server' });
       }
     };
-    
+
     fetchStatus();
     const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);

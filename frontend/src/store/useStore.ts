@@ -40,6 +40,7 @@ interface AppState {
   pendingOrders: any[];
   positions: any[];
   mt5Data: Mt5AccountData | null;
+  mt5Error: string;
   scannerData: any[];
   candleData: Record<string, any[]>;
   marketSession: string;
@@ -56,6 +57,7 @@ interface AppState {
   setPendingOrders: (orders: any[]) => void;
   setPositions: (positions: any[]) => void;
   setMt5Data: (data: Mt5AccountData) => void;
+  setMt5Error: (error: string) => void;
   setScannerData: (data: any[]) => void;
   setCandleData: (data: Record<string, any[]>) => void;
   setMarketSession: (session: string) => void;
@@ -80,6 +82,7 @@ export const useStore = create<AppState>((set) => ({
   pendingOrders: [],
   positions: [],
   mt5Data: null,
+  mt5Error: '',
   scannerData: [],
   candleData: {},
   marketSession: '--',
@@ -106,6 +109,7 @@ export const useStore = create<AppState>((set) => ({
   setPendingOrders: (pendingOrders) => set(() => ({ pendingOrders })),
   setPositions: (positions) => set(() => ({ positions })),
   setMt5Data: (mt5Data) => set(() => ({ mt5Data })),
+  setMt5Error: (mt5Error) => set(() => ({ mt5Error })),
   setScannerData: (scannerData) => set(() => ({ scannerData })),
   setCandleData: (candleData) => set(() => ({ candleData })),
   setMarketSession: (marketSession) => set(() => ({ marketSession })),
@@ -120,7 +124,7 @@ export const useStore = create<AppState>((set) => ({
       token: null, user: null, wsStatus: 'disconnected',
       isBackendOffline: false, isMt5Connected: false,
       socket: null, pendingOrders: [], positions: [], mt5Data: null,
-      scannerData: [], candleData: {}, marketSession: '--',
+      mt5Error: '', scannerData: [], candleData: {}, marketSession: '--',
       aiSignals: {}, aiStatus: null, tradeHistory: [],
     };
   }),

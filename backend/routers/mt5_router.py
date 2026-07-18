@@ -151,8 +151,9 @@ async def get_candles(symbol: str = "EURUSD", timeframe: str = "M1", count: int 
 @router.get("/status")
 async def get_mt5_status():
     summary = mt5_service.get_account_summary()
-    return {
-        "connected": summary.get("connected", False),
+    connected = summary.get("connected", False)
+    result = {
+        "connected": connected,
         "account": summary.get("account_number", 0),
         "server": summary.get("server", ""),
         "broker": summary.get("broker", ""),
@@ -161,6 +162,9 @@ async def get_mt5_status():
         "trade_allowed": summary.get("trade_allowed", False),
         "timestamp": datetime.utcnow().isoformat(),
     }
+    if not connected and mt5_service.last_error:
+        result["error"] = mt5_service.last_error
+    return result
 
 
 @router.post("/connect")
@@ -170,7 +174,8 @@ async def connect_mt5(req: ConnectRequest = ConnectRequest()):
     if success:
         mt5_service.start_auto_reconnect()
         return {"status": "ok", "message": "MT5 connected successfully"}
-    return {"status": "error", "message": "Failed to connect MT5"}
+    error = mt5_service.last_error or "Failed to connect MT5"
+    return {"status": "error", "message": error}
 
 
 @router.post("/disconnect")

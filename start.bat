@@ -1,22 +1,42 @@
 @echo off
-title Trading Platform - MT5 Automation
+title AntiGravity AI Trading Platform V4
+cd /d "%~dp0"
 
-:: Start backend in a new window
-start "Backend" cmd /c "cd /d "%~dp0backend" && python main.py"
+echo ^============================================
+echo ^  AntiGravity AI Trading Platform V4
+echo ^============================================
+echo.
 
-:: Wait briefly for backend to start
-timeout /t 3 /nobreak >nul
+if not exist ".venv\Scripts\python.exe" (
+    echo Creating virtual environment...
+    python -m venv .venv
+)
 
-:: Start frontend in a new window
-start "Frontend" cmd /c "cd /d "%~dp0frontend" && npm run dev"
+echo Installing Python dependencies...
+.venv\Scripts\pip.exe install -r backend\requirements.txt
+
+if not exist "frontend\node_modules" (
+    echo Installing frontend dependencies...
+    cd frontend
+    call npm install
+    cd ..
+)
+
+echo Starting Backend Server...
+start "AntiGravity-Backend" /B .venv\Scripts\python.exe backend\main.py
+
+echo Starting Frontend...
+set NEXT_TELEMETRY_DISABLED=1
+start "AntiGravity-Frontend" /B cmd /c "cd frontend && npm run dev -- -p 3001"
 
 echo.
-echo ============================================
-echo   Backend:  http://127.0.0.1:8007
-echo   Frontend: http://localhost:3000
-echo   Login:    admin / admin123
-echo ============================================
+echo Backend:  http://127.0.0.1:8007
+echo Frontend: http://localhost:3001
+echo Login:    admin / admin123
 echo.
-echo Close the console windows to stop.
+echo Close this window to stop all services.
 echo.
-pause
+
+:wait
+timeout /t 5 /nobreak >nul
+goto wait

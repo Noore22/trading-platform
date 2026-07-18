@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import concurrent.futures
 from datetime import datetime
 from typing import Optional
 
@@ -23,18 +24,26 @@ class AICoordinator:
         self._running = False
         self._initialized = False
         self._last_analysis = {}
+        self._init_error = ""
 
     def initialize_all(self) -> bool:
         results = []
         for service in [technical_service, news_service, sentiment_service,
                         fundamental_service, macro_service, risk_service, portfolio_service]:
             try:
-                results.append(service.initialize())
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(service.initialize)
+                    result = future.result(timeout=30)
+                    results.append(result)
+            except concurrent.futures.TimeoutError:
+                logger.warning(f"AI service {service.name} init timed out after 30s")
+                results.append(False)
             except Exception as e:
                 logger.error(f"Failed to init {service.name}: {e}")
                 results.append(False)
-        self._initialized = all(results)
-        logger.info(f"AI Coordinator initialized: {self._initialized}")
+        self._initialized = any(results)
+        self._init_error = "" if self._initialized else "All AI agents failed to initialize"
+        logger.info(f"AI Coordinator initialized: {self._initialized} ({sum(results)}/7 agents)")
         return self._initialized
 
     def analyze_symbol(self, symbol: str) -> dict:
@@ -135,6 +144,7 @@ class AICoordinator:
     def get_agent_status(self) -> dict:
         return {
             "initialized": self._initialized,
+            "init_error": self._init_error,
             "agents": {
                 "technical": technical_service._initialized,
                 "news": news_service._initialized,

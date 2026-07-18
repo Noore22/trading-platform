@@ -161,6 +161,7 @@ export default function DashboardPage() {
   const isBackendOffline = useStore((state) => state.isBackendOffline);
   const isMt5Connected = useStore((state) => state.isMt5Connected);
   const mt5Data = useStore((state) => state.mt5Data);
+  const mt5Error = useStore((state) => state.mt5Error);
   const wsStatus = useStore((state) => state.wsStatus);
   const marketSession = useStore((state) => state.marketSession);
   const aiStatus = useStore((state) => state.aiStatus);
@@ -187,6 +188,31 @@ export default function DashboardPage() {
       useStore.getState().setIsBackendOffline(false);
       if (data.mt5) {
         useStore.getState().setIsMt5Connected(!!data.mt5.connected);
+        useStore.getState().setMt5Data({
+          balance: data.mt5.balance ?? 0,
+          equity: data.mt5.equity ?? 0,
+          margin: data.mt5.margin ?? 0,
+          free_margin: data.mt5.free_margin ?? 0,
+          floating_profit: data.mt5.floating_profit ?? data.mt5.profit ?? 0,
+          daily_profit: data.mt5.daily_profit ?? 0,
+          weekly_profit: data.mt5.weekly_profit ?? 0,
+          monthly_profit: data.mt5.monthly_profit ?? 0,
+          drawdown: data.mt5.drawdown ?? 0,
+          margin_level: data.mt5.margin_level ?? 0,
+          leverage: data.mt5.leverage ?? 100,
+          currency: data.mt5.currency ?? 'USD',
+          server: data.mt5.server ?? '',
+          account_number: data.mt5.account_number ?? 0,
+          broker: data.mt5.broker ?? '',
+          open_positions: data.mt5.open_positions ?? 0,
+          trade_allowed: data.mt5.trade_allowed ?? false,
+        } as any);
+        if (data.mt5.error) {
+          useStore.getState().setMt5Error(data.mt5.error);
+        }
+      }
+      if (data.mt5?.ai_status) {
+        useStore.getState().setAiStatus(data.mt5.ai_status);
       }
     } catch {
       useStore.getState().setIsBackendOffline(true);
@@ -362,25 +388,30 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-3">
               {[
-                { label: 'Backend', status: !isBackendOffline, icon: Server },
-                { label: 'MT5 Connection', status: isMt5Connected, icon: Plug },
-                { label: 'WebSocket', status: wsStatus === 'connected', icon: Activity },
-                { label: 'AI Engine', status: !!aiInitialized, icon: Bot },
-                { label: 'Broker', status: isMt5Connected, icon: Globe },
+                { label: 'Backend', status: !isBackendOffline, icon: Server, error: '' },
+                { label: 'MT5 Connection', status: isMt5Connected, icon: Plug, error: !isMt5Connected ? (mt5Error || 'Not connected') : '' },
+                { label: 'WebSocket', status: wsStatus === 'connected', icon: Activity, error: wsStatus !== 'connected' ? 'Not connected' : '' },
+                { label: 'AI Engine', status: !!aiInitialized, icon: Bot, error: !aiInitialized ? (aiStatus?.init_error || 'Not initialized') : '' },
+                { label: 'Broker', status: isMt5Connected, icon: Globe, error: !isMt5Connected ? 'Requires MT5' : '' },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
-                  <div key={item.label} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Icon className="w-3.5 h-3.5 text-gray-500" />
-                      <span className="text-xs text-gray-400">{item.label}</span>
+                  <div key={item.label}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Icon className="w-3.5 h-3.5 text-gray-500" />
+                        <span className="text-xs text-gray-400">{item.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className={`w-2 h-2 rounded-full ${item.status ? 'bg-[#00C853] shadow-[0_0_6px_rgba(0,200,83,0.6)]' : 'bg-[#FF1744] shadow-[0_0_6px_rgba(255,23,68,0.6)]'}`} />
+                        <span className={`text-[10px] font-semibold ${item.status ? 'text-[#00C853]' : 'text-[#FF1744]'}`}>
+                          {item.status ? 'ONLINE' : 'OFFLINE'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className={`w-2 h-2 rounded-full ${item.status ? 'bg-[#00C853] shadow-[0_0_6px_rgba(0,200,83,0.6)]' : 'bg-[#FF1744] shadow-[0_0_6px_rgba(255,23,68,0.6)]'}`} />
-                      <span className={`text-[10px] font-semibold ${item.status ? 'text-[#00C853]' : 'text-[#FF1744]'}`}>
-                        {item.status ? 'ONLINE' : 'OFFLINE'}
-                      </span>
-                    </div>
+                    {!item.status && item.error && (
+                      <p className="text-[9px] text-[#FF1744]/70 ml-5 mt-0.5 truncate" title={item.error}>{item.error}</p>
+                    )}
                   </div>
                 );
               })}
